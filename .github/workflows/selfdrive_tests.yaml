@@ -22,7 +22,7 @@ env:
   BASE_IMAGE: openpilot-base
   AZURE_TOKEN: ${{ secrets.AZURE_COMMADATACI_OPENPILOTCI_TOKEN }}
 
-  DOCKER_LOGIN: docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+  DOCKER_LOGIN: docker lçogin ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
   BUILD: selfdrive/test/docker_build.sh base
 
   RUN: docker run --shm-size 2G -v $PWD:/tmp/openpilot -w /tmp/openpilot -e CI=1 -e PYTHONWARNINGS=error -e FILEREADER_CACHE=1 -e PYTHONPATH=/tmp/openpilot -e NUM_JOBS -e JOB_ID -e GITHUB_ACTION -e GITHUB_REF -e GITHUB_HEAD_REF -e GITHUB_SHA -e GITHUB_REPOSITORY -e GITHUB_RUN_ID -v $GITHUB_WORKSPACE/.ci_cache/scons_cache:/tmp/scons_cache -v $GITHUB_WORKSPACE/.ci_cache/comma_download_cache:/tmp/comma_download_cache -v $GITHUB_WORKSPACE/.ci_cache/openpilot_cache:/tmp/openpilot_cache $BASE_IMAGE /bin/bash -c
@@ -42,15 +42,18 @@ jobs:
         with:
           submodules: true
           fetch-dept: 1
+
       - name: Getting LFS files
         uses: nick-fields/retry@7152eba30c6575329ac0576536151aca5a72780e
         with:
           timeout_minutes: 2
           max_attempts: 3
           command: git lfs pull
+
       - name: Build devel
         timeout-minutes: 1
         run: TARGET_DIR=$STRIPPED_DIR release/build_devel.sh
+
       - uses: ./.github/workflows/setup-with-retry
       - name: Check submodules
         if: github.repository == 'commaai/openpilot'
@@ -83,6 +86,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          fetch-depth: 1
       - name: Setup docker push
         if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request' && github.repository == 'commaai/openpilot'
         run: |
@@ -123,9 +127,28 @@ jobs:
     runs-on:
       - ${{ ((github.repository == 'commaai/openpilot') && ((github.event_name != 'pull_request') || (github.event.pull_request.head.repo.full_name == 'commaai/openpilot'))) && 'namespace-profile-amd64-8x16' || 'ubuntu-24.04' }}
       - ${{ ((github.repository == 'commaai/openpilot') && ((github.event_name != 'pull_request') || (github.event.pull_request.head.repo.full_name == 'commaai/openpilot'))) && 'namespace-experiments:docker.builds.local-cache=separate' || 'ubuntu-24.04' }}
+    container:
+      image: ${{ env.BASE_IMAGE }}
     env:
       PYTHONWARNINGS: default
+      CI: 1
+      FILEREADER_CACHE: 1
+      PYTHONPATH: /tmp/openpilot
+      NUM_JOBS: $NUM_JOBS
+      JOB_ID: $JOB_ID
+      GITHUB_ACTION: $GITHUB_ACTION
+      GITHUB_REF: $GITHUB_REF
+      GITHUB_HEAD_REF: $GITHUB_HEAD_REF
+      GITHUB_SHA: $GITHUB_SHA
+      GITHUB_REPOSITORY: $GITHUB_REPOSITORY
+      GITHUB_RUN_ID: $GITHUB_RUN_ID
     steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/checkout@v4
         with:
           submodules: true
@@ -133,7 +156,7 @@ jobs:
       - uses: ./.github/workflows/setup-with-retry
       - name: Static analysis
         timeout-minutes: 1
-        run: ${{ env.RUN }} "scripts/lint/lint.sh"
+        run: "scripts/lint/lint.sh"
 
   unit_tests:
     name: unit tests
@@ -172,6 +195,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          fetch-depth: 1
       - uses: ./.github/workflows/setup-with-retry
       - name: Cache test routes
         id: dependency-cache
