@@ -156,7 +156,7 @@ jobs:
       - uses: ./.github/workflows/setup-with-retry
       - name: Static analysis
         timeout-minutes: 1
-        run: "scripts/lint/lint.sh"
+        run:P "scripts/lint/lint.sh"
 
   unit_tests:
     name: unit tests
