@@ -1,11 +1,11 @@
 name: prebuilt
+
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 * * * *" # Runs every hour
   workflow_dispatch:
 
 env:
-  DOCKER_LOGIN: docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
   BUILD: selfdrive/test/docker_build.sh prebuilt
 
 jobs:
@@ -19,7 +19,9 @@ jobs:
       checks: read
       contents: read
       packages: write
+
     steps:
+      # 1. Wait for Green Check Mark (Conditional Step)
       - name: Wait for green check mark
         if: ${{ github.event_name != 'workflow_dispatch' }}
         uses: lewagon/wait-on-check-action@ccfb013c15c8afb7bf2b7c028fb74dc5a068cccc
@@ -29,13 +31,99 @@ jobs:
           running-workflow-name: "build prebuilt"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           check-regexp: ^((?!.*(build master-ci).*).)*$
+
+      # 2. Checkout Repository with Shallow Clone
       - uses: actions/checkout@v4
         with:
           submodules: true
-          fetch-depth: 1
-          fetch-depth: 1
-      - run: git lfs pull
+          fetch-depth: 1 # Removed duplicate 'fetch-depth'
+
+      # 3. Restore SCons Cache
+      - name: Restore SCons Cache
+        id: scons-cache
+        uses: actions/cache@v4
+        with:
+          path: .ci_cache/scons_cache
+          key: scons-${{ runner.os }}-${{ hashFiles('**/SConstruct', '**/SConscript') }}
+          restore-keys: |
+            scons-${{ runner.os }}-
+            scons-
+
+      # 4. Restore Comma Download Cache
+      - name: Restore Comma Download Cache
+        id: comma-cache
+        uses: actions/cache@v4
+        with:
+          path: .ci_cache/comma_download_cache
+          key: comma-download-${{ runner.os }}-${{ hashFiles('selfdrive/test/process_replay/ref_commit', 'selfdrive/test/process_replay/test_processes.py') }}
+          restore-keys: |
+            comma-download-${{ runner.os }}-
+            comma-download-
+
+      # 5. Restore Openpilot Cache
+      - name: Restore Openpilot Cache
+        id: openpilot-cache
+        uses: actions/cache@v4
+        with:
+          path: .ci_cache/openpilot_cache
+          key: openpilot-cache-${{ runner.os }}-${{ hashFiles('**/SConstruct', '**/SConscript', '**/requirements.txt') }}
+          restore-keys: |
+            openpilot-cache-${{ runner.os }}-
+            openpilot-cache-
+
+      # 6. Git LFS Pull (with Retry)
+      - name: Getting LFS files
+        uses: nick-fields/retry@7152eba30c6575329ac0576536151aca5a72780e
+        with:
+          timeout_minutes: 2
+          max_attempts: 3
+          command: git lfs pull
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 7. Build and Push Docker Image with Caching
       - name: Build and Push docker image
         run: |
+          # Log into Docker Registry
           $DOCKER_LOGIN
+
+          # Execute the build script inside Docker with cached dependencies
           eval "$BUILD"
+
+      # 8. Save SCons Cache (Post-Build)
+      - name: Save SCons Cache
+        if: always() # Ensure this step runs even if previous steps fail
+        uses: actions/cache@v4
+        with:
+          path: .ci_cache/scons_cache
+          key: scons-${{ runner.os }}-${{ hashFiles('**/SConstruct', '**/SConscript') }}
+          restore-keys: |
+            scons-${{ runner.os }}-
+            scons-
+
+      # 9. Save Comma Download Cache (Post-Build)
+      - name: Save Comma Download Cache
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: .ci_cache/comma_download_cache
+          key: comma-download-${{ runner.os }}-${{ hashFiles('selfdrive/test/process_replay/ref_commit', 'selfdrive/test/process_replay/test_processes.py') }}
+          restore-keys: |
+            comma-download-${{ runner.os }}-
+            comma-download-
+
+      # 10. Save Openpilot Cache (Post-Build)
+      - name: Save Openpilot Cache
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: .ci_cache/openpilot_cache
+          key: openpilot-cache-${{ runner.os }}-${{ hashFiles('**/SConstruct', '**/SConscript', '**/requirements.txt') }}
+          restore-keys: |
+            openpilot-cache-${{ runner.os }}-
+            openpilot-cache-
